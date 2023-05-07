@@ -1,38 +1,46 @@
 use actix_web::{web, HttpResponse, Responder};
 
+use bcrypt::hash;
+
 use serde::Serialize;
 use serde_json::json;
+use sqlx::{Pool, Postgres};
 
-use crate::db::connection::PgPool;
-use crate::models::user::User;
+use crate::AppState;
+
+use crate::models::user::{NewUser, Page, User};
 
 #[derive(Serialize)]
 struct ErrorResponse {
     message: String,
 }
 
-pub async fn get_user(pool: web::Data<PgPool>) -> impl Responder {
-    // get users from database
-    let mut conn = pool.get().unwrap();
-    let users = User::find_all(&mut conn).unwrap();
+pub async fn get_user(pool: web::Data<AppState>, query: web::Query<Page>) -> impl Responder {
+    let page = query.into_inner();
+
+    let users = sqlx::query_as!(User, "SELECT * FROM users")
+        .fetch_all(&pool.db)
+        .await
+        .unwrap();
     println!("{:?}", users);
     HttpResponse::Ok().json({
         json!({
             "status": "200",
-            "message": "User registered",
+            "message": "User fetched successfully",
             "data": users
         })
     })
 }
 
-pub async fn register_user(_pool: web::Data<PgPool>, data: web::Json<User>) -> impl Responder {
-    let user = data.into_inner();
-    println!("{:?}", user);
-    HttpResponse::Ok().json({
-        json!({
-            "status": "200",
-            "message": "User registered",
-            "data": user
-        })
-    })
+pub async fn register_user(pool: web::Data<AppState>, data: web::Json<NewUser>) -> impl Responder {
+    match NewUser::register(pool.db.clone(), data).await {
+        Ok(response) => response,
+        Err(err) => {
+            let json_response = json!({
+                "status": "400",
+                "message": err.to_string()
+            });
+            HttpResponse::BadRequest().json(json_response)
+        }
+    }
 }

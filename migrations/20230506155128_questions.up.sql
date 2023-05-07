@@ -1,7 +1,7 @@
--- create table for questions
-CREATE TABLE Question (
+-- Add up migration script here
+CREATE TABLE Questions (
     id SERIAL PRIMARY KEY,
-    certificate_id VARCHAR NOT NULL,
+    certificate_id INTEGER NOT NULL,
     question VARCHAR(255) NOT NULL,
     -- question_id VARCHAR(255) NOT NULL,
     options TEXT[] ,
