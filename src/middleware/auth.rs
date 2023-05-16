@@ -2,6 +2,7 @@ use std::fmt;
 use std::future::{ready, Ready};
 
 use actix_web::error::{Error as ActixWebError, ErrorUnauthorized};
+use actix_web::http::header::HeaderValue;
 use actix_web::{FromRequest, HttpRequest};
 
 use actix_web::{
@@ -119,25 +120,33 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        println!("Hi from start. You requested: {}", req.path());
-
         let fut = self.service.call(req);
 
         Box::pin(async move {
-            let res = fut.await?;
+            let mut res = fut.await?;
             // get the token from header
             let token = res
                 .headers()
                 .get(actix_web::http::header::AUTHORIZATION)
+                .unwrap_or(&HeaderValue::from_static(""))
                 .clone();
+            let header = res.headers_mut();
             // if token is not present then return error
-            if token.is_none() {
+            if token.is_empty() {
+                // set header content type to json
+                header.insert(
+                    actix_web::http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                println!("{:?}", res.headers());
+                // set the response body
                 let json_response = json!(
                     {
                         "status": "401",
                         "message": "Unauthorized"
                     }
                 );
+                // return error
                 return Err(ErrorUnauthorized(json_response));
             } else {
                 print!("token is present");

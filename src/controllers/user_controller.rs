@@ -1,23 +1,18 @@
 use actix_web::{web, HttpResponse, Responder};
 
-use bcrypt::hash;
-
 use serde::Serialize;
 use serde_json::json;
-use sqlx::{Pool, Postgres};
 
 use crate::AppState;
 
-use crate::models::user::{NewUser, Page, User};
+use crate::models::user::{NewUser, User};
 
 #[derive(Serialize)]
 struct ErrorResponse {
     message: String,
 }
 
-pub async fn get_user(pool: web::Data<AppState>, query: web::Query<Page>) -> impl Responder {
-    let page = query.into_inner();
-
+pub async fn get_user(pool: web::Data<AppState>) -> impl Responder {
     let users = sqlx::query_as!(User, "SELECT * FROM users")
         .fetch_all(&pool.db)
         .await
