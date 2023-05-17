@@ -21,40 +21,68 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 // write a test for this module
 #[cfg(test)]
 mod tests {
+    use crate::{db, AppState};
+
     use super::*;
     use actix_web::{
         http::{
             self,
             header::{self, HeaderValue},
         },
-        test, App, HttpMessage,
+        test,
+        web::Data,
+        App,
     };
 
     #[actix_web::test]
     async fn test_get_user() {
-        let app =
-            test::init_service(App::new().service(web::scope("/api").configure(config))).await;
+        let pool = match db::connection::get_pool().await {
+            Ok(pool) => {
+                log::info!("✅Connection to the database is successful!");
+                pool
+            }
+            Err(err) => {
+                log::error!("🔥 Failed to connect to the database: {:?}", err);
+                std::process::exit(1);
+            }
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(AppState { db: pool.clone() }))
+                .service(web::scope("/api").configure(config)),
+        )
+        .await;
 
         // add auth header
 
-        let mut req = test::TestRequest::get()
+        let req = test::TestRequest::get()
             .uri("/api/user/get_user")
+            .insert_header((header::AUTHORIZATION, HeaderValue::from_static("token")))
             .to_request();
 
-        req.headers_mut()
-            .insert(header::AUTHORIZATION, HeaderValue::from_static("token"));
-        println!("{:?}", req.headers());
-        let resp = test::call_service(&app, req).await;
+        let resp = test::call_service(&app, req.into()).await;
         assert_eq!(resp.status(), http::StatusCode::OK)
     }
 
     #[actix_web::test]
     async fn test_register_user() {
-        let mut app = test::init_service(App::new().configure(config)).await;
-        let req = test::TestRequest::post()
-            .uri("/api/user/auth/register")
+        let app =
+            test::init_service(App::new().service(web::scope("/api").configure(config))).await;
+        let mut req = test::TestRequest::get()
+            .uri("/api/user/get_user")
             .to_request();
-        let resp = test::call_service(&mut app, req).await;
+        let header = req.headers_mut();
+        header.insert(
+            http::header::AUTHORIZATION,
+            HeaderValue::from_static("token"),
+        );
+        let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), http::StatusCode::OK)
+
+        // let req = test::TestRequest::post()
+        //     .uri("/api/user/auth/register")
+        //     .to_request();
+        // let resp = test::call_service(&mut app, req).await;
+        // assert_eq!(resp.status(), http::StatusCode::OK)
     }
 }

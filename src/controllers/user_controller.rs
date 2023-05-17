@@ -13,6 +13,7 @@ struct ErrorResponse {
 }
 
 pub async fn get_user(pool: web::Data<AppState>) -> impl Responder {
+    println!("get_user");
     let users = sqlx::query_as!(User, "SELECT * FROM users")
         .fetch_all(&pool.db)
         .await
