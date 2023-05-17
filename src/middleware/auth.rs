@@ -1,17 +1,15 @@
 use std::fmt;
-use std::future::{ready, Ready};
-use std::sync::Arc;
 
-use actix_web::error::{Error as ActixWebError, ErrorUnauthorized};
+use actix_web::body::EitherBody;
+use actix_web::dev::{Service, Transform};
 use actix_web::http::header::HeaderValue;
-use actix_web::{FromRequest, HttpRequest};
-
+use actix_web::{dev, http, HttpResponse};
 use actix_web::{
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
+    dev::{forward_ready, ServiceRequest, ServiceResponse},
     Error,
 };
-use futures_util::future::LocalBoxFuture;
-use jsonwebtoken::{decode, DecodingKey};
+
+use futures_util::future::{ready, LocalBoxFuture, Ready};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[derive(Debug, Serialize)]
@@ -46,45 +44,45 @@ impl JwtMiddleware {
     }
 }
 
-impl FromRequest for JwtMiddleware {
-    type Error = ActixWebError;
-    type Future = Ready<Result<Self, Self::Error>>;
+// impl FromRequest for JwtMiddleware {
+//     type Error = ActixWebError;
+//     type Future = Ready<Result<Self, Self::Error>>;
 
-    fn from_request(req: &HttpRequest, _: &mut actix_web::dev::Payload) -> Self::Future {
-        let token = req
-            .headers()
-            .get(actix_web::http::header::AUTHORIZATION)
-            .map(|header_value| header_value.to_str().unwrap().split_at(7).1.to_string());
+//     fn from_request(req: &HttpRequest, _: &mut actix_web::dev::Payload) -> Self::Future {
+//         let token = req
+//             .headers()
+//             .get(actix_web::http::header::AUTHORIZATION)
+//             .map(|header_value| header_value.to_str().unwrap().split_at(7).1.to_string());
 
-        if token.is_none() {
-            let json_response = ErrorResponse {
-                status: "401".to_string(),
-                message: "Unauthorized".to_string(),
-            };
-            return ready(Err(ErrorUnauthorized(json_response)));
-        }
+//         if token.is_none() {
+//             let json_response = ErrorResponse {
+//                 status: "401".to_string(),
+//                 message: "Unauthorized".to_string(),
+//             };
+//             return ready(Err(ErrorUnauthorized(json_response)));
+//         }
 
-        let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-        let validation = jsonwebtoken::Validation::default();
-        let claim = match decode::<TokenClaim>(
-            &token.unwrap(),
-            &DecodingKey::from_secret(&secret.as_ref()),
-            &validation,
-        ) {
-            Ok(claim) => claim.claims,
-            Err(_) => {
-                let json_response = ErrorResponse {
-                    status: "401".to_string(),
-                    message: "Unauthorized".to_string(),
-                };
-                return ready(Err(ErrorUnauthorized(json_response)));
-            }
-        };
-        ready(Ok(JwtMiddleware {
-            user_id: claim.user_id,
-        }))
-    }
-}
+//         let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+//         let validation = jsonwebtoken::Validation::default();
+//         let claim = match decode::<TokenClaim>(
+//             &token.unwrap(),
+//             &DecodingKey::from_secret(&secret.as_ref()),
+//             &validation,
+//         ) {
+//             Ok(claim) => claim.claims,
+//             Err(_) => {
+//                 let json_response = ErrorResponse {
+//                     status: "401".to_string(),
+//                     message: "Unauthorized".to_string(),
+//                 };
+//                 return ready(Err(ErrorUnauthorized(json_response)));
+//             }
+//         };
+//         ready(Ok(JwtMiddleware {
+//             user_id: claim.user_id,
+//         }))
+//     }
+// }
 pub struct Auth;
 
 impl<S, B> Transform<S, ServiceRequest> for Auth
@@ -93,7 +91,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type InitError = ();
     type Transform = AuthMiddleware<S>;
@@ -103,7 +101,6 @@ where
         ready(Ok(AuthMiddleware { service }))
     }
 }
-
 pub struct AuthMiddleware<S> {
     service: S,
 }
@@ -114,47 +111,40 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     forward_ready!(service);
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        let fut = self.service.call(req);
+    fn call(&self, request: ServiceRequest) -> Self::Future {
+        let token = request
+            .headers()
+            .get(actix_web::http::header::AUTHORIZATION)
+            .unwrap_or(&HeaderValue::from_static(""))
+            .clone();
 
-        Box::pin(async move {
-            let res = fut.await?;
-            // get the token from header
-            let req = res.request();
-            let token = req
-                .headers()
-                .get(actix_web::http::header::AUTHORIZATION)
-                .unwrap_or(&HeaderValue::from_static(""))
-                .clone();
+        // if token is not present then return error
 
-            // if token is not present then return error
+        if token.is_empty() {
+            let json_response = json!(
+                {
+                    "status": 401,
+                    "message": "Unauthorized"
+                }
+            );
+            // return error
+            let (request, _pl) = request.into_parts();
 
-            if token.is_empty() {
-                // set header content type to json
-                // header.insert(
-                //     actix_web::http::header::CONTENT_TYPE,
-                //     HeaderValue::from_static("application/json"),
-                // );
-                // set the response body
-                let json_response = json!(
-                    {
-                        "status": 401,
-                        "message": "Unauthorized"
-                    }
-                );
-                // return error
-                return Err(ErrorUnauthorized(json_response));
-            } else {
-                print!("token is present");
-                // bypass the middleware if the request has token
-                Ok(res)
-            }
-        })
+            let response = HttpResponse::Unauthorized()
+                .json(json_response)
+                .map_into_right_body();
+
+            return Box::pin(async { Ok(ServiceResponse::new(request, response)) });
+        }
+
+        let res = self.service.call(request);
+
+        Box::pin(async move { res.await.map(ServiceResponse::map_into_left_body) })
     }
 }

@@ -20,4 +20,3 @@ bcrypt = "0.14.0"
 jsonwebtoken = "8.2.0"
 futures-util = "0.3.28"
 sqlx = { version = "0.6", features = ["runtime-tokio-native-tls", "postgres","macros","chrono"] }
-

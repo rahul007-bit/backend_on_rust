@@ -4,24 +4,22 @@ use actix_web::web;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::scope("/user")
+        web::scope("")
             .service(
                 web::scope("/auth")
                     .route("/register", web::post().to(user_controller::register_user)), // .route("/login", web::post().to(user_controller::login_user))
-                                                                                         // .route("/logout", web::post().to(user_controller::logout_user)),
             )
             .service(
-                web::scope("")
+                web::scope("/user")
                     .wrap(auth::Auth)
                     .route("/get_user", web::get().to(user_controller::get_user)),
             ),
     );
 }
 
-// write a test for this module
 #[cfg(test)]
 mod tests {
-    use crate::{db, AppState};
+    use crate::{db, models, AppState};
 
     use super::*;
     use actix_web::{
@@ -66,23 +64,60 @@ mod tests {
 
     #[actix_web::test]
     async fn test_register_user() {
-        let app =
-            test::init_service(App::new().service(web::scope("/api").configure(config))).await;
-        let mut req = test::TestRequest::get()
-            .uri("/api/user/get_user")
-            .to_request();
-        let header = req.headers_mut();
-        header.insert(
-            http::header::AUTHORIZATION,
-            HeaderValue::from_static("token"),
-        );
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), http::StatusCode::OK)
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(AppState {
+                    db: db::connection::get_pool().await.unwrap(),
+                }))
+                .service(web::scope("/api").configure(config)),
+        )
+        .await;
+        let random_email = format!("{}@gmail.com", ulid::Ulid::new().to_string());
+        let user = models::user::NewUser {
+            name: "example".to_string(),
+            email: random_email,
+            password: "password".to_string(),
+            role: "student".to_string(),
+            department: "IT".to_string(),
+            academic_year: "2020-21".to_string(),
+            profile_image: None,
+        };
 
-        // let req = test::TestRequest::post()
-        //     .uri("/api/user/auth/register")
-        //     .to_request();
-        // let resp = test::call_service(&mut app, req).await;
-        // assert_eq!(resp.status(), http::StatusCode::OK)
+        let req = test::TestRequest::post()
+            .uri("/api/auth/register")
+            .set_json(&user)
+            .to_request();
+
+        let resp = test::call_service(&app, req.into()).await;
+        assert_eq!(resp.status(), http::StatusCode::OK)
+    }
+
+    #[actix_web::test]
+    async fn test_register_user_with_existing_email() {
+        let app = test::init_service(
+            App::new()
+                .app_data(Data::new(AppState {
+                    db: db::connection::get_pool().await.unwrap(),
+                }))
+                .service(web::scope("/api").configure(config)),
+        )
+        .await;
+        let user = models::user::NewUser {
+            name: "example".to_string(),
+            email: "example@gmail.com".to_string(),
+            password: "password".to_string(),
+            role: "student".to_string(),
+            department: "IT".to_string(),
+            academic_year: "2020-21".to_string(),
+            profile_image: None,
+        };
+
+        let req = test::TestRequest::post()
+            .uri("/api/auth/register")
+            .set_json(&user)
+            .to_request();
+
+        let resp = test::call_service(&app, req.into()).await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST)
     }
 }
