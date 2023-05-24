@@ -1,5 +1,7 @@
 {
-  "cSpell.words": ["chrono", "dotenv"]
+  "cSpell.words": ["chrono", "dotenv"],
+  "rust-analyzer.linkedProjects": ["./Cargo.toml", "./Cargo.toml"],
+  "rust-analyzer.showUnlinkedFileNotification": false
   // "rust-analyzer.diagnostics.enable": false
   // "rust-analyzer.checkOnSave": true
 }

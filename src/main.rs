@@ -5,6 +5,8 @@ use actix_web::{
 };
 use sqlx::{Pool, Postgres};
 
+use crate::models::admin::init_admin;
+
 mod controllers;
 mod db;
 mod middleware;
@@ -24,18 +26,11 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     log::info!("Starting server on http://localhost:8080 ...");
     // get the connection pool
-    let pool = match db::connection::get_pool().await {
-        Ok(pool) => {
-            log::info!("✅Connection to the database is successful!");
-            pool
-        }
-        Err(err) => {
-            log::error!("🔥 Failed to connect to the database: {:?}", err);
-            std::process::exit(1);
-        }
-    };
-    // starting server
+    let pool = db::connection::get_pool().await;
 
+    init_admin(pool.clone()).await;
+
+    // starting server
     HttpServer::new(move || {
         let logger = Logger::default();
 

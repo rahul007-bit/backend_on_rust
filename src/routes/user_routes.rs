@@ -7,7 +7,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         web::scope("")
             .service(
                 web::scope("/auth")
-                    .route("/register", web::post().to(user_controller::register_user)), // .route("/login", web::post().to(user_controller::login_user))
+                    .route("/register", web::post().to(user_controller::register_user))
+                    .route("/login", web::post().to(user_controller::login_user)),
             )
             .service(
                 web::scope("/user")
@@ -33,17 +34,8 @@ mod tests {
     };
 
     #[actix_web::test]
-    async fn test_get_user() {
-        let pool = match db::connection::get_pool().await {
-            Ok(pool) => {
-                log::info!("✅Connection to the database is successful!");
-                pool
-            }
-            Err(err) => {
-                log::error!("🔥 Failed to connect to the database: {:?}", err);
-                std::process::exit(1);
-            }
-        };
+    async fn test_get_user_by_invalid_user() {
+        let pool = db::connection::get_pool().await;
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(AppState { db: pool.clone() }))
@@ -59,7 +51,7 @@ mod tests {
             .to_request();
 
         let resp = test::call_service(&app, req.into()).await;
-        assert_eq!(resp.status(), http::StatusCode::OK)
+        assert_eq!(resp.status(), http::StatusCode::UNAUTHORIZED)
     }
 
     #[actix_web::test]
@@ -67,21 +59,12 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(AppState {
-                    db: db::connection::get_pool().await.unwrap(),
+                    db: db::connection::get_pool().await,
                 }))
                 .service(web::scope("/api").configure(config)),
         )
         .await;
-        let random_email = format!("{}@gmail.com", ulid::Ulid::new().to_string());
-        let user = models::user::NewUser {
-            name: "example".to_string(),
-            email: random_email,
-            password: "password".to_string(),
-            role: "student".to_string(),
-            department: "IT".to_string(),
-            academic_year: "2020-21".to_string(),
-            profile_image: None,
-        };
+        let user = models::user::NewUser::new_test_user();
 
         let req = test::TestRequest::post()
             .uri("/api/auth/register")
@@ -97,20 +80,12 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(AppState {
-                    db: db::connection::get_pool().await.unwrap(),
+                    db: db::connection::get_pool().await,
                 }))
                 .service(web::scope("/api").configure(config)),
         )
         .await;
-        let user = models::user::NewUser {
-            name: "example".to_string(),
-            email: "example@gmail.com".to_string(),
-            password: "password".to_string(),
-            role: "student".to_string(),
-            department: "IT".to_string(),
-            academic_year: "2020-21".to_string(),
-            profile_image: None,
-        };
+        let user = models::user::NewUser::register_test_user();
 
         let req = test::TestRequest::post()
             .uri("/api/auth/register")

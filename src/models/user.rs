@@ -2,6 +2,8 @@ use actix_web::{Error, HttpResponse};
 use bcrypt::hash;
 use serde::{Deserialize, Serialize};
 
+use crate::middleware::auth::{JwtMiddleware, TokenClaim};
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
     pub id: i32,
@@ -24,6 +26,12 @@ pub struct NewUser {
     pub department: String,
     pub profile_image: Option<String>,
     pub academic_year: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginUser {
+    pub email: String,
+    pub password: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,7 +83,74 @@ impl User {
     }
 }
 
+impl LoginUser {
+    pub fn new() -> LoginUser {
+        LoginUser {
+            email: "".to_string(),
+            password: "".to_string(),
+        }
+    }
+    pub async fn login(
+        clone: sqlx::Pool<sqlx::Postgres>,
+        data: actix_web::web::Json<LoginUser>,
+    ) -> Result<HttpResponse, Error> {
+        let user = match sqlx::query_as!(User, "SELECT * FROM users WHERE email = $1", data.email)
+            .fetch_optional(&clone)
+            .await
+        {
+            Ok(user) => user,
+            Err(err) => return Err(actix_web::error::ErrorBadRequest(err.to_string())),
+        };
+        if user.is_none() {
+            return Err(actix_web::error::ErrorBadRequest("User not found"));
+        }
+        let user = user.unwrap();
+
+        let is_valid = match bcrypt::verify(&data.password, &user.password) {
+            Ok(is_valid) => is_valid,
+            Err(err) => return Err(actix_web::error::ErrorBadRequest(err.to_string())),
+        };
+        if !is_valid {
+            return Err(actix_web::error::ErrorBadRequest("Invalid password"));
+        }
+        let token = JwtMiddleware::generate_token(user.id.to_string(), user.role.to_string());
+        let json_response = serde_json::json!({
+            "status": "200",
+            "message": "User logged in",
+            "data": {
+                "user": user,
+                "token": token
+            }
+        });
+        // return success
+        Ok(HttpResponse::Ok().json(json_response))
+    }
+}
+
 impl NewUser {
+    pub fn new_test_user() -> NewUser {
+        let random_email = format!("{}@gmail.com", ulid::Ulid::new().to_string());
+        NewUser {
+            name: "example".to_string(),
+            email: random_email,
+            password: "password".to_string(),
+            role: "student".to_string(),
+            department: "IT".to_string(),
+            academic_year: "2020-21".to_string(),
+            profile_image: None,
+        }
+    }
+    pub fn register_test_user() -> NewUser {
+        NewUser {
+            name: "example".to_string(),
+            email: "example@gmail.com".to_string(),
+            password: "password".to_string(),
+            role: "student".to_string(),
+            department: "IT".to_string(),
+            academic_year: "2020-21".to_string(),
+            profile_image: None,
+        }
+    }
     pub async fn register(
         db: sqlx::Pool<sqlx::Postgres>,
         data: actix_web::web::Json<NewUser>,

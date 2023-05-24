@@ -1,0 +1,31 @@
+version: '3.8'
+services:
+  reimbursement:
+    build: .
+    container_name: reimbursement_rust
+    # restart: on-failure
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 30s
+    ports:
+      - 8080:8080
+    volumes:
+      - .:/reimbursment
+
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+      # add my host postgres url
+  # postgres:
+  #   image: postgres:15.3-alpine
+  #   container_name: reimbursement_postgres
+  #   restart: on-failure
+  #   ports:
+  #     - 5432:5432
+  #   environment:
+  #     - POSTGRES_USER=rahulyadav
+  #     - POSTGRES_PASSWORD=123456
+  #     - POSTGRES_DB=reimbursement
